@@ -77,6 +77,18 @@ public class BookKeeprServer {
         return x;
     }
 
+    static int getIntFromMap(Map<String, String> requestMap, String key) {
+        int x = -1;
+        if (requestMap.get(key) != null) {
+            try {
+                x = Integer.parseInt(requestMap.get("coord_theta"));
+            } catch (NumberFormatException e) {
+                x = -1;
+            }
+        }
+        return x;
+    }
+
     static boolean getBooleanFromMap(Map<String, String> requestMap, String key) {
         return (requestMap.get(key) != null);
     }

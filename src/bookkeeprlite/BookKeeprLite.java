@@ -31,6 +31,7 @@ public class BookKeeprLite {
 
     private final Logger logger = LoggerFactory.getLogger(BookKeeprLite.class);
     private final String dbname;
+    private int nconnections = 0;
     protected Handler logHandler;
 
     /**
@@ -112,7 +113,7 @@ public class BookKeeprLite {
                 while (rs.next()) {
                     if (!rs.getString("key").equals("k" + i)) {
                         rs.close();
-                        conn.close();
+                        this.closeDB(conn);
                         throw new BookKeeprLiteException("Error, could not get the correct keys back from the dabase");
                     }
                     i++;
@@ -139,6 +140,18 @@ public class BookKeeprLite {
 
             synchronized (this) {
 
+                logger.debug("Testing for beams table");
+                ResultSet rs = s.executeQuery("select count(*) from `beams`;");
+                int nptg = -1;
+                if (rs.next()) {
+                    nptg = rs.getInt(1);
+                }
+                rs.close();
+                logger.info("Found {} beams in the database", nptg);
+            }
+
+            synchronized (this) {
+
                 logger.debug("Testing for psrxml table");
                 ResultSet rs = s.executeQuery("select count(*) from `psrxml`;");
                 int n = -1;
@@ -149,21 +162,24 @@ public class BookKeeprLite {
                 logger.info("Found {} psrxml entries in the database", n);
             }
 
-            conn.close();
+            this.closeDB(conn);
 
         } catch (SQLException ex) {
+            this.closeDB(conn);
+
             throw new BookKeeprLiteException("An error occured trying to test the dabase", ex);
         }
 
         logger.info("Test shows database can be read and written ok");
 
     }
-/**
- * Initiaises an empty database. Warning: Calling this method will erase any
- * existing database!
- *
- * @throws BookKeeprLiteException on a database failure.
- */
+
+    /**
+     * Initiaises an empty database. Warning: Calling this method will erase any
+     * existing database!
+     *
+     * @throws BookKeeprLiteException on a database failure.
+     */
     public void initialiseBookKeepr() throws BookKeeprLiteException {
         logger.info("Initialising the database, this will remove all entries!");
 
@@ -179,31 +195,28 @@ public class BookKeeprLite {
                 logger.debug("Re-creating pointings table");
 
                 s.executeUpdate("drop table if exists `pointings`;");
-                s.executeUpdate("create table `pointings` ("
-                        + "`uid` integer primary key,"
-                        + "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
+                s.executeUpdate("create table `pointings` (" + "`uid` integer primary key," + "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
 
                 conn.commit();
 
                 logger.debug("Re-creating survey beams table");
 
                 s.executeUpdate("drop table if exists `beams`;");
-                s.executeUpdate("create table `beams` ("
-                        + "`uid` integer primary key,"
-                        + "`pointingid`, `gridid`, `coordinate`, `ra`,`dec`,`gl`,`gb`);");
+                s.executeUpdate("create table `beams` (" + "`uid` integer primary key," + "`pointing_uid`, `gridid`, `coordinate`, `ra`,`dec`,`gl`,`gb`," +
+                        "  foreign key(pointing_uid) references pointing(uid));");
 
                 conn.commit();
 
                 logger.debug("Re-creating psrxml table");
 
                 s.executeUpdate("drop table if exists `psrxml`;");
-                s.executeUpdate("create table `psrxml` ("
-                        + "`uid` integer primary key, `pointing_uid`"
-                        + "`url`, `coordinate`,`ra`,`dec`,`gl`,`gb`,`utcstart`,`lst`,`beam`,`tobs`,`source_id`,`programme`);");
+                s.executeUpdate("create table `psrxml` (" + "`uid` integer primary key, beam_uid" + "`url`, `coordinate`,`ra`,`dec`,`gl`,`gb`,`utcstart`," +
+                        "`lst`,`beam`,`tobs`,`source_id`,`programme`," +
+                        " foreign key(beam_uid) references beams(uid));");
 
                 conn.commit();
             }
-            conn.close();
+            this.closeDB(conn);
         } catch (SQLException ex) {
             throw new BookKeeprLiteException("An error occured trying to initialise the database", ex);
         }
@@ -223,7 +236,17 @@ public class BookKeeprLite {
         Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbname);
 
         org.sqlite.Function.create(conn, "sepnGal", new GalacticDistanceComparatorDBFunction());
+        nconnections++;
         return conn;
+    }
+
+    public void closeDB(Connection conn) {
+        try {
+            conn.close();
+            nconnections--;
+        } catch (SQLException ex) {
+            logger.debug("Error closing db connection", ex);
+        }
     }
 
     /**
@@ -301,11 +324,11 @@ public class BookKeeprLite {
                 System.err.close();
             }
 
-            bk.test();
-
 
             if (interactive) {
                 InteractiveConsole.interactiveConsole(bk);
+            } else {
+                bk.test();
             }
 
             if (server) {

@@ -4,15 +4,18 @@
  */
 package bookkeeprlite;
 
+import coordlib.Coordinate;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Map;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -92,22 +95,27 @@ public class ObservationJettyHandler extends AbstractHandler {
 
 
         String gridid = requestMap.get("gridid");
+        if (gridid != null && gridid.trim().equals("")) {
+            gridid = null;
+        }
         String obstype = requestMap.get("obstype");
         if (obstype == null) {
             obstype = "both";
         }
 
         double distmax = BookKeeprServer.getDoubleFromMap(requestMap, "distmax");
-        double coord_theta = BookKeeprServer.getDoubleFromMap(requestMap, "coord_theta");
-        double coord_phi = BookKeeprServer.getDoubleFromMap(requestMap, "coord_phi");
-        boolean galactic = BookKeeprServer.getBooleanFromMap(requestMap, "galactic");
+        String coord_str = requestMap.get("coord");
+        if (coord_str == null) {
+            coord_str = "G 0 0";
+        }
+        Coordinate coord = new Coordinate(coord_str);
+        double gl = coord.getGl();
+        double gb = coord.getGb();
 
-        if (requestMap.get("coord_theta") != null) {
-            try {
-                coord_theta = Double.parseDouble(requestMap.get("coord_theta"));
-            } catch (NumberFormatException e) {
-                coord_theta = Double.NaN;
-            }
+        int nmax = BookKeeprServer.getIntFromMap(requestMap, "nmax");
+
+        if (nmax < 0 || nmax > 1000) {
+            nmax = 1000;
         }
 
 
@@ -115,71 +123,161 @@ public class ObservationJettyHandler extends AbstractHandler {
             return;
         }
 
-        /*
-         * Prepare for database interaction.
-         */
+
+        StringBuffer whereClause = new StringBuffer();
+
+        if (gridid != null) {
+            whereClause.append(" AND pointings.gridid == ?");
+
+        }
+
+
+        if (obstype.equals("toobserve")) {
+            whereClause.append(" AND pointings.toobserve == 'true'");
+        }
+        if (obstype.equals("nottoobserve")) {
+            whereClause.append(" AND toobserve == 'false'");
+        }
+
+        ArrayList<String> uids = new ArrayList<String>();
+        ArrayList<Double> sepns = null; // this will be null if there was no coord.
+
+        PrintStream out = new PrintStream(response.getOutputStream());
+
+
+
+        // Begin talking to the database... open a connection
+        Connection conn = null;
         try {
-            StringBuffer query = new StringBuffer("select * from `pointings` where 1");
-
-            if (gridid != null) {
-                query.append(" AND `gridid` == ?");
-
-            }
-
-            if (obstype.equals("toobserve")) {
-                query.append(" AND `toobserve` == 'true'");
-            }
-            if (obstype.equals("nottoobserve")) {
-                query.append(" AND `toobserve` == 'false'");
-            }
+            conn = bk.connectDB();
 
 
-
+            /*
+             * We have two cases:
+             *
+             * 1) We are searching by position, then we need to select beams first.
+             * 2) We are searching by some other criteria, no need to select beams.
+             *
+             */
             if (distmax > 0) {
-                if (galactic) {
-                    query.append(" AND sepnGal(?,?,`gl`,`gb`) < ?");
-                } else {
-                    query.append(" AND sepnGal(?,?,`ra`,`dec`) < ?");
+                // search by position... could use region field to make things
+                // faster.
+                StringBuffer query = new StringBuffer("select pointings.uid," +
+                        " sepnGal(?,?,`gl`,`gb`) from `beams` inner join `pointings`" +
+                        " on beams.pointing_uid == pointings.uid " +
+                        " where sepnGal(?,?,`gl`,`gb`) < ?");
+
+                query.append(whereClause);
+                query.append(" order by sepnGal(?,?,`gl`,`gb`) limit ");
+                query.append(nmax * 13);
+                query.append(";");
+                sepns = new ArrayList<Double>();
+
+                synchronized (bk) {
+
+                    int i = 0;
+                    PreparedStatement s = conn.prepareStatement(query.toString());
+
+                    // Here we are setting the variables for the statement
+
+                    s.setDouble(++i, gl);
+                    s.setDouble(++i, gb);
+                    s.setDouble(++i, distmax);
+
+                    if (gridid != null) {
+                        s.setString(++i, gridid);
+                    }
+
+                    s.setDouble(++i, gl);
+                    s.setDouble(++i, gb);
+                    s.setDouble(++i, distmax);
+
+
+
+                    // Query is open DATABASE LOCKED!
+                    ResultSet rs = s.executeQuery();
+                    while (rs.next()) {
+                        uids.add(rs.getString(1));
+                        sepns.add(rs.getDouble(2));
+                    }
+                    // Resultset closed, released database
+                    rs.close();
                 }
 
-            }
-
-            int i = 0;
 
 
-            query.append(";");
-            
-            // Begin talking to the database... open a connection
-            Connection conn = bk.connectDB();
+            } else {
+                StringBuffer query = new StringBuffer("select `uid` from" +
+                        "`pointings` where 1");
+                query.append(whereClause);
+                query.append(" limit ");
+                query.append(nmax * 13);
+                query.append(";");
 
-            synchronized (bk) {
+                int i = 0;
+                PreparedStatement s = conn.prepareStatement(query.toString());
 
                 // Here we are setting the variables for the statement
-                PreparedStatement s = conn.prepareStatement(query.toString());
                 if (gridid != null) {
                     s.setString(++i, gridid);
                 }
 
-                if (distmax > 0) {
-                    s.setDouble(++i, coord_theta);
-                    s.setDouble(++i, coord_phi);
-                    s.setDouble(++i, distmax);
-                }
-
                 // Query is open DATABASE LOCKED!
                 ResultSet rs = s.executeQuery();
-
+                while (rs.next()) {
+                    uids.add(rs.getString(1));
+                }
                 // Resultset closed, released database
                 rs.close();
-                conn.close();
             }
 
+            // Now get the pointings.
+            StringBuffer query = new StringBuffer("select pointings.uid, " +
+                    "pointings.gridid, beams.gridid,beams.coord,pointings.toobserve, " +
+                    "pointings.survey , pointings.region, pointings.tobs, " +
+                    " pointings.config" +
+                    " from beams inner join pointings " +
+                    " on beams.pointing_uid == pointings.uid" +
+                    " where pointings.uid == ?");
+
+            query.append(whereClause);
+            query.append(";");
+
+            synchronized (bk) {
+                PreparedStatement s = conn.prepareStatement(query.toString());
+                int n = 0;
+                for (String uid : uids) {
+                    // Here we are setting the variables for the statement
+                    int i = 0;
+
+                    s.setString(++i, uid);
+
+                    if (gridid != null) {
+                        s.setString(++i, gridid);
+                    }
+
+                    ResultSet rs = s.executeQuery();
+                    // todo send data to user!
+                    out.println(rs.getString(nmax));
+                    rs.close();
+                    n++;
+                    if (n > nmax) {
+                        break;
+                    }
+                }
+            }
+            bk.closeDB(conn);
         } catch (SQLException ex) {
+            bk.closeDB(conn);
+
             logger.error("An exception occured trying to talk to the database.", ex);
         }
+
+        out.flush();
 
         if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/footer.xhtml", request, response)) {
             return;
         }
+        out.close();
     }
 }

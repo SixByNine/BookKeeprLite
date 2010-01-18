@@ -40,6 +40,32 @@ public class InteractiveConsole {
                     break;
                 }
 
+                if (line.startsWith("!reinit")) {
+
+                    System.out.print("This will DELETE the database\nARE YOU SURE? (y/n)");
+                    System.out.flush();
+                    line = reader.readLine();
+                    if (line.equalsIgnoreCase("y")) {
+                        bk.initialiseBookKeepr();
+                    }
+                    System.out.println("Initialisation complete.");
+                    System.out.print("bookkeepr> ");
+
+                    line = reader.readLine();
+                    continue;
+
+                }
+                if (line.startsWith("!test")) {
+                    try {
+                        bk.test();
+                    } catch (BookKeeprLiteException ex) {
+                        ex.printStackTrace();
+                    }
+                    System.out.print("bookkeepr> ");
+                    System.out.flush();
+                    line = reader.readLine();
+                    continue;
+                }
                 if (line.startsWith("!begin")) {
                     c.setAutoCommit(false);
                     System.out.print("bookkeepr> ");
@@ -96,7 +122,7 @@ public class InteractiveConsole {
                 line = reader.readLine();
             }
 
-            c.close();
+bk.closeDB(c);
 
         } catch (Exception exception) {
             Logger.getLogger(InteractiveConsole.class.getName()).log(Level.SEVERE, exception.getMessage(), exception);
