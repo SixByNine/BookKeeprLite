@@ -19,6 +19,7 @@ import javax.swing.text.DateFormatter;
  */
 public class LogFormatter extends Formatter {
 
+    private boolean classes = false;
     SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
 
     @Override
@@ -26,9 +27,13 @@ public class LogFormatter extends Formatter {
 
         StringWriter sw = new StringWriter();
         PrintWriter out = new PrintWriter(sw);
-        out.printf("%6s %s %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getMessage());
-        if(record.getThrown()!=null){
-            out.printf("%6s %s %s\n", "","****************",record.getThrown().getMessage());
+        if (classes) {
+            out.printf("%6s %s (%s.%s) %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getSourceClassName(), record.getSourceMethodName(), record.getMessage());
+        } else {
+            out.printf("%6s %s %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getMessage());
+        }
+        if (record.getThrown() != null) {
+            out.printf("%6s %s %s\n", "", "****************", record.getThrown().getMessage());
             record.getThrown().printStackTrace(out);
         }
         return sw.getBuffer().toString();

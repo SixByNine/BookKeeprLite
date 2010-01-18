@@ -4,24 +4,19 @@
  */
 package bookkeeprlite;
 
-import java.io.BufferedReader;
-import java.io.FileNotFoundException;
+import bookkeeprlite.sqlitefunctions.GalacticDistanceComparatorDBFunction;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.lang.reflect.Array;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
-import java.util.logging.StreamHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
@@ -29,7 +24,9 @@ import java.util.logging.StreamHandler;
  */
 public class BookKeeprLite {
 
-    final String dbname;
+    private final Logger logger = LoggerFactory.getLogger(BookKeeprLite.class);
+    private final String dbname;
+    protected Handler logHandler;
 
     /**
      * Creates a new instance of BookKeeprLite for operations.
@@ -43,20 +40,23 @@ public class BookKeeprLite {
         this.dbname = dbname;
 
         // Set up logging.
-        final Logger logger = Logger.getLogger("bookkeeprlite");
-        try {
-            Handler h = new FileHandler(logfile);
-            h.setFormatter(new LogFormatter());
-            logger.addHandler(h);
-        } catch (IOException ex) {
-        }
-        Logger.getLogger(BookKeeprLite.class.getName()).info("Starting bookkeeprlite");
 
+        try {
+            final java.util.logging.Logger rootlogger = java.util.logging.Logger.getLogger("bookkeeprlite");
+            logHandler = new FileHandler(logfile);
+            logHandler.setFormatter(new LogFormatter());
+            rootlogger.addHandler(logHandler);
+        } catch (IOException ex) {
+            logHandler = null;
+        }
+        logger.info("Starting bookkeeprlite");
         // load the SQLite driver.
         try {
+            logger.debug("Loading sqlite driver");
             Class.forName("org.sqlite.JDBC");
         } catch (ClassNotFoundException ex) {
-            Logger.getLogger(BookKeeprLite.class.getName()).log(Level.SEVERE, null, ex);
+            logger.error("sqlite driver not found on classpath.", ex);
+            throw new BookKeeprLiteException(ex);
         }
 
 
@@ -70,7 +70,7 @@ public class BookKeeprLite {
      */
     public void test() throws BookKeeprLiteException {
         Connection conn = null;
-
+        logger.debug("Testing the database connection");
         // Try and connect to the database.
         try {
             conn = this.connectDB();
@@ -78,12 +78,17 @@ public class BookKeeprLite {
             conn.setAutoCommit(false);
 
             Statement s = conn.createStatement();
+
             synchronized (this) {
+                logger.debug("Trying to drop 'test' table");
                 s.executeUpdate("drop table if exists `test`;");
+
+                logger.debug("Trying to create 'test' table");
                 s.executeUpdate("create table `test` (key,val);");
 
                 conn.commit();
             }
+            logger.debug("Trying to insert test rows");
             for (int i = 0; i < 100; i++) {
                 s.addBatch("insert into `test` values ('k" + i + "','v" + i + "');");
             }
@@ -94,6 +99,8 @@ public class BookKeeprLite {
             }
 
             synchronized (this) {
+
+                logger.debug("Trying to select test rows");
                 ResultSet rs = s.executeQuery("select * from `test`;");
 
                 int i = 0;
@@ -105,20 +112,34 @@ public class BookKeeprLite {
                 }
                 rs.close();
 
+                logger.debug("Trying to drop test table");
                 s.executeUpdate("drop table if exists `test`;");
                 conn.commit();
-                
+
             }
 
             synchronized (this) {
 
-                s.execute("select count(*) from `pointings`;");
-//                ResultSet rs = s.executeQuery("select count(*) from `pointings`;");
-                ResultSet rs = s.getResultSet();
+                logger.debug("Testing for pointings table");
+                ResultSet rs = s.executeQuery("select count(*) from `pointings`;");
                 int nptg = -1;
-                if (rs.next()) nptg = rs.getInt(1);
+                if (rs.next()) {
+                    nptg = rs.getInt(1);
+                }
                 rs.close();
-                Logger.getLogger(BookKeeprLite.class.getName()).info("Found "+nptg+" pointings in the database");
+                logger.info("Found {} pointings in the database", nptg);
+            }
+
+            synchronized (this) {
+
+                logger.debug("Testing for psrxml table");
+                ResultSet rs = s.executeQuery("select count(*) from `psrxml`;");
+                int n = -1;
+                if (rs.next()) {
+                    n = rs.getInt(1);
+                }
+                rs.close();
+                logger.info("Found {} psrxml entries in the database", n);
             }
 
             conn.close();
@@ -127,11 +148,12 @@ public class BookKeeprLite {
             throw new BookKeeprLiteException("An error occured trying to test the dabase", ex);
         }
 
-        Logger.getLogger(BookKeeprLite.class.getName()).info("Test shows database can be read and written ok");
+        logger.info("Test shows database can be read and written ok");
+
     }
 
     public void initialiseBookKeepr() throws BookKeeprLiteException {
-        Logger.getLogger(BookKeeprLite.class.getName()).info("Initialising the database, this will remove all entries!");
+        logger.info("Initialising the database, this will remove all entries!");
 
         Connection conn = null;
         // Try and connect to the database.
@@ -142,17 +164,21 @@ public class BookKeeprLite {
 
             Statement s = conn.createStatement();
             synchronized (this) {
+                logger.debug("Re-creating pointings table");
+
                 s.executeUpdate("drop table if exists `pointings`;");
-                s.executeUpdate("create table `pointings` (" +
-                        "`uid` integer primary key," +
-                        "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
+                s.executeUpdate("create table `pointings` ("
+                        + "`uid` integer primary key,"
+                        + "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
 
                 conn.commit();
 
+                logger.debug("Re-creating psrxml table");
+
                 s.executeUpdate("drop table if exists `psrxml`;");
-                s.executeUpdate("create table `psrxml` (" +
-                        "`uid` integer primary key, `pointing_uid`" +
-                        "`url`, `coordinate`,`ra`,`dec`,`gl`,`gb`,`utcstart`,`lst`,`beam`,`tobs`,`source_id`,`programme`);");
+                s.executeUpdate("create table `psrxml` ("
+                        + "`uid` integer primary key, `pointing_uid`"
+                        + "`url`, `coordinate`,`ra`,`dec`,`gl`,`gb`,`utcstart`,`lst`,`beam`,`tobs`,`source_id`,`programme`);");
 
                 conn.commit();
             }
@@ -160,7 +186,7 @@ public class BookKeeprLite {
         } catch (SQLException ex) {
             throw new BookKeeprLiteException("An error occured trying to initialise the database", ex);
         }
-        Logger.getLogger(BookKeeprLite.class.getName()).info("Database initialisation complete");
+        logger.info("Database initialisation complete");
     }
 
     /**
@@ -171,23 +197,64 @@ public class BookKeeprLite {
      * @throws java.sql.SQLException
      */
     public Connection connectDB() throws SQLException {
-        return DriverManager.getConnection("jdbc:sqlite:" + dbname);
+
+        logger.debug("A new database connection was requested");
+        Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbname);
+
+        org.sqlite.Function.create(conn, "sepnGal", new GalacticDistanceComparatorDBFunction());
+
+        return conn;
     }
 
     /**
      * @param args the command line arguments
      */
     public static void main(String[] args) {
+
+        java.util.logging.Logger rootlogger = java.util.logging.Logger.getLogger("");
+        for (Handler h : rootlogger.getHandlers()) {
+            rootlogger.removeHandler(h);
+        }
+        Handler h = new ConsoleHandler();
+        h.setFormatter(new LogFormatter());
+        rootlogger.addHandler(h);
+
+        final Logger logger = LoggerFactory.getLogger(BookKeeprLite.class);
+
         boolean quiet = false;
         boolean interactive = false;
         boolean reinit = false;
+        boolean server = false;
 
-        for(String a : args){
-            String shortargs="";
-            if(a.startsWith("-") && a.charAt(1) != '-')shortargs=a;
-            if(a.equals("--quiet") || shortargs.contains("q"))quiet=true;
-            if(a.equals("--reinit"))reinit=true;
-            if(a.equals("--interactive") || shortargs.contains("i"))interactive=true;
+        for (String a : args) {
+            String shortargs = "";
+            if (a.startsWith("-") && a.charAt(1) != '-') {
+                shortargs = a;
+            }
+            if (a.equals("--quiet") || shortargs.contains("q")) {
+                quiet = true;
+            }
+
+            if (a.equals("--verbose") || shortargs.contains("V")) {
+                java.util.logging.Logger.getLogger("bookkeeprlite").setLevel(Level.ALL);
+                logger.info("Verbose logging to logfile enabled.");
+            }
+
+            if (a.equals("--jetty-verbose")) {
+                java.util.logging.Logger.getLogger("org.mortbay").setLevel(Level.ALL);
+                logger.info("Verbose jetty logging to logfile enabled.");
+            }
+
+            if (a.equals("--reinit")) {
+                reinit = true;
+            }
+            if (a.equals("--interactive") || shortargs.contains("i")) {
+                interactive = true;
+            }
+
+            if (a.equals("--server") || shortargs.contains("s")) {
+                server = true;
+            }
         }
 
         if (!interactive) {
@@ -198,18 +265,18 @@ public class BookKeeprLite {
         }
 
         try {
-            Logger.getLogger(BookKeeprLite.class.getName()).info("(startup) Attempt to start a bookkeepr instance");
+            logger.info("Attempt to start a bookkeepr instance");
             BookKeeprLite bk = new BookKeeprLite("test.db", "bookkeepr.log");
-            Logger.getLogger(BookKeeprLite.class.getName()).info("(startup) bookkeepr instance started ok");
+            logger.info("bookkeepr instance started ok");
 
 
             if (reinit) {
-                Logger.getLogger(BookKeeprLite.class.getName()).warning("(startup) re-initialising the database: This removes all contents!!");
+                logger.warn("re-initialising the database: This removes all contents!!");
                 bk.initialiseBookKeepr();
             }
 
             if (quiet) {
-                Logger.getLogger(BookKeeprLite.class.getName()).info("(startup) quiet mode, closing output");
+                logger.info("quiet mode, closing output");
                 System.out.close();
                 System.err.close();
             }
@@ -221,9 +288,12 @@ public class BookKeeprLite {
                 InteractiveConsole.interactiveConsole(bk);
             }
 
+            if (server) {
+                new BookKeeprServer(bk, 22000).start();
+            }
 
         } catch (BookKeeprLiteException ex) {
-            Logger.getLogger(BookKeeprLite.class.getName()).log(Level.SEVERE, ex.getMessage(), ex);
+            logger.error("An exception has occured whilst running the bookkeepr", ex);
         }
 
     }
