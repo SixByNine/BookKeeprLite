@@ -48,7 +48,8 @@ public class ObservationJettyHandler extends AbstractHandler {
     }
 
     /**
-     * Handles http requests to search the database, using http POST or GET.
+     * Handles http requests to search the observations database, using http
+     * POST or GET.
      *
      * @param path
      * @param request
@@ -118,8 +119,6 @@ public class ObservationJettyHandler extends AbstractHandler {
          * Prepare for database interaction.
          */
         try {
-            Connection conn = bk.connectDB();
-
             StringBuffer query = new StringBuffer("select * from `pointings` where 1");
 
             if (gridid != null) {
@@ -149,19 +148,31 @@ public class ObservationJettyHandler extends AbstractHandler {
 
 
             query.append(";");
-            PreparedStatement s = conn.prepareStatement(query.toString());
-            if (gridid != null) {
-                s.setString(++i, gridid);
+            
+            // Begin talking to the database... open a connection
+            Connection conn = bk.connectDB();
+
+            synchronized (bk) {
+
+                // Here we are setting the variables for the statement
+                PreparedStatement s = conn.prepareStatement(query.toString());
+                if (gridid != null) {
+                    s.setString(++i, gridid);
+                }
+
+                if (distmax > 0) {
+                    s.setDouble(++i, coord_theta);
+                    s.setDouble(++i, coord_phi);
+                    s.setDouble(++i, distmax);
+                }
+
+                // Query is open DATABASE LOCKED!
+                ResultSet rs = s.executeQuery();
+
+                // Resultset closed, released database
+                rs.close();
+                conn.close();
             }
-
-            if (distmax > 0) {
-                s.setDouble(++i, coord_theta);
-                s.setDouble(++i, coord_phi);
-                s.setDouble(++i, distmax);
-            }
-
-            ResultSet rs = s.executeQuery();
-
 
         } catch (SQLException ex) {
             logger.error("An exception occured trying to talk to the database.", ex);

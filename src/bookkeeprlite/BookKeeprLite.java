@@ -20,6 +20,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  *
+ * BookKeeprLite: A light version of the BookKeepr using SQLite as the backend
+ * database.
+ *
+ * Uses tables: pointings, beams, psrxml.
+ *
  * @author kei041
  */
 public class BookKeeprLite {
@@ -106,6 +111,8 @@ public class BookKeeprLite {
                 int i = 0;
                 while (rs.next()) {
                     if (!rs.getString("key").equals("k" + i)) {
+                        rs.close();
+                        conn.close();
                         throw new BookKeeprLiteException("Error, could not get the correct keys back from the dabase");
                     }
                     i++;
@@ -151,7 +158,12 @@ public class BookKeeprLite {
         logger.info("Test shows database can be read and written ok");
 
     }
-
+/**
+ * Initiaises an empty database. Warning: Calling this method will erase any
+ * existing database!
+ *
+ * @throws BookKeeprLiteException on a database failure.
+ */
     public void initialiseBookKeepr() throws BookKeeprLiteException {
         logger.info("Initialising the database, this will remove all entries!");
 
@@ -170,6 +182,15 @@ public class BookKeeprLite {
                 s.executeUpdate("create table `pointings` ("
                         + "`uid` integer primary key,"
                         + "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
+
+                conn.commit();
+
+                logger.debug("Re-creating survey beams table");
+
+                s.executeUpdate("drop table if exists `beams`;");
+                s.executeUpdate("create table `beams` ("
+                        + "`uid` integer primary key,"
+                        + "`pointingid`, `gridid`, `coordinate`, `ra`,`dec`,`gl`,`gb`);");
 
                 conn.commit();
 
@@ -202,7 +223,6 @@ public class BookKeeprLite {
         Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbname);
 
         org.sqlite.Function.create(conn, "sepnGal", new GalacticDistanceComparatorDBFunction());
-
         return conn;
     }
 
