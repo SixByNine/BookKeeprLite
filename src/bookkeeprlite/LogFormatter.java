@@ -22,13 +22,19 @@ public class LogFormatter extends Formatter {
     private boolean classes = false;
     SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
+    public void setClasses(boolean classes) {
+        this.classes = classes;
+    }
+
+    
+
     @Override
     public String format(LogRecord record) {
 
         StringWriter sw = new StringWriter();
         PrintWriter out = new PrintWriter(sw);
         if (classes) {
-            out.printf("%6s %s (%s.%s) %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getSourceClassName(), record.getSourceMethodName(), record.getMessage());
+            out.printf("%6s %s (%s.%s %d) %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getSourceClassName(), record.getSourceMethodName(),record.getThreadID(), record.getMessage());
         } else {
             out.printf("%6s %s %s\n", record.getLevel().toString(), df.format(new Date(record.getMillis())), record.getMessage());
         }
@@ -38,4 +44,6 @@ public class LogFormatter extends Formatter {
         }
         return sw.getBuffer().toString();
     }
+
+
 }

@@ -31,6 +31,7 @@ public class BookKeeprLite {
 
     private final Logger logger = LoggerFactory.getLogger(BookKeeprLite.class);
     private final String dbname;
+    private final LogFormatter logFormatter = new LogFormatter();
     private int nconnections = 0;
     protected Handler logHandler;
 
@@ -50,7 +51,7 @@ public class BookKeeprLite {
         try {
             final java.util.logging.Logger rootlogger = java.util.logging.Logger.getLogger("bookkeeprlite");
             logHandler = new FileHandler(logfile);
-            logHandler.setFormatter(new LogFormatter());
+            logHandler.setFormatter(logFormatter);
             rootlogger.addHandler(logHandler);
         } catch (IOException ex) {
             logHandler = null;
@@ -267,7 +268,8 @@ public class BookKeeprLite {
             rootlogger.removeHandler(h);
         }
         Handler h = new ConsoleHandler();
-        h.setFormatter(new LogFormatter());
+        LogFormatter lf = new LogFormatter();
+        h.setFormatter(lf);
         rootlogger.addHandler(h);
 
         final Logger logger = LoggerFactory.getLogger(BookKeeprLite.class);
@@ -276,35 +278,50 @@ public class BookKeeprLite {
         boolean interactive = false;
         boolean reinit = false;
         boolean server = false;
+        boolean longlog = false;
+        int port = 22000;
+
+
 
         for (String a : args) {
             String shortargs = "";
             if (a.startsWith("-") && a.charAt(1) != '-') {
                 shortargs = a;
             }
-            if (a.equals("--quiet") || shortargs.contains("q")) {
-                quiet = true;
-            }
+
 
             if (a.equals("--verbose") || shortargs.contains("V")) {
                 java.util.logging.Logger.getLogger("bookkeeprlite").setLevel(Level.ALL);
-                logger.info("Verbose logging to logfile enabled.");
+                h.setLevel(Level.ALL);
+                logger.info("Verbose logging enabled.");
+            }
+
+            if (a.equals("--long-log")) {
+                longlog = true;
+                lf.setClasses(true);
+                logger.info("Extra log info requested.");
             }
 
             if (a.equals("--jetty-verbose")) {
                 java.util.logging.Logger.getLogger("org.mortbay").setLevel(Level.ALL);
-                logger.info("Verbose jetty logging to logfile enabled.");
+                logger.info("Verbose jetty logging enabled.");
             }
 
-//            if (a.equals("--reinit")) {
-//                reinit = true;
-//            }
+            if (a.startsWith("--port=")) {
+                String[] elems = a.split("=");
+                port = Integer.parseInt(elems[1]);
+            }
+
             if (a.equals("--interactive") || shortargs.contains("i")) {
                 interactive = true;
             }
 
             if (a.equals("--server") || shortargs.contains("s")) {
                 server = true;
+            }
+
+            if (a.equals("--quiet") || shortargs.contains("q")) {
+                quiet = true;
             }
         }
 
@@ -318,6 +335,7 @@ public class BookKeeprLite {
         try {
             logger.info("Attempt to start a bookkeepr instance");
             BookKeeprLite bk = new BookKeeprLite("test.db", "bookkeepr.log");
+            bk.logFormatter.setClasses(longlog);
             logger.info("bookkeepr instance started ok");
 
 

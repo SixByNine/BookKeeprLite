@@ -95,7 +95,9 @@ public class ObservationJettyHandler extends AbstractHandler {
         }
 
 
-
+        /*
+         * Get the search parameters from the http request
+         */
         String gridid = requestMap.get("gridid");
         if (gridid != null && gridid.trim().equals("")) {
             gridid = null;
@@ -129,21 +131,27 @@ public class ObservationJettyHandler extends AbstractHandler {
         }
 
 
+        /*
+         * Here we create the bulk of the "where" clause, depending on what
+         * search options were used.
+         */
         StringBuffer whereClause = new StringBuffer();
 
         if (gridid != null) {
-            whereClause.append(" AND pointings.gridid == ?");
+            whereClause.append(" AND `gridid` == ?");
 
         }
-
 
         if (obstype.equals("toobserve")) {
-            whereClause.append(" AND pointings.toobserve == 'true'");
+            whereClause.append(" AND `toobserve` == 'true'");
         }
         if (obstype.equals("nottoobserve")) {
-            whereClause.append(" AND toobserve == 'false'");
+            whereClause.append(" AND `toobserve` == 'false'");
         }
 
+        /*
+         * These arraylists are used later on.
+         */
         ArrayList<String> uids = new ArrayList<String>();
         ArrayList<Double> sepns = null; // this will be null if there was no coord.
         ArrayList<SurveyPointing> pointings = new ArrayList<SurveyPointing>();
@@ -166,8 +174,8 @@ public class ObservationJettyHandler extends AbstractHandler {
              */
             if (distmax > 0) {
                 /**
-                 * @TODO: Make this faster by splitting into regions and/or
-                 * making virtual tables.
+                 * We compute the "sepn" field for all database points that lie
+                 * in a sensible Gb region. This makes things faster later on.
                  *
                  */
                 {
@@ -201,15 +209,16 @@ public class ObservationJettyHandler extends AbstractHandler {
                         i++;
                     }
                     logger.debug("Found {} beams for temp table", i);
+                    // Make sure to close the resultset and the statements
+                    // to free database resources.
                     rs.close();
                     s.close();
-                    i = 0;
-                    for (int x : s2.executeBatch()) {
-                        i += x;
-                    }
-                    logger.debug("Inserted {} rows in temp table", i);
+
+                    // execute the insert statements, then close.
+                    s2.executeBatch();
                     conn.commit();
                     s2.close();
+
 
                 }
 
@@ -285,10 +294,10 @@ public class ObservationJettyHandler extends AbstractHandler {
             // Now get the pointings.
             StringBuffer query = new StringBuffer("select `uid`, `gridid`, `survey`, `region`," +
                     " `coordinate`, `tobs`, `toobserve`" +
-                    "from pointings where `uid` = ? limit 1");
+                    "from pointings where `uid` = ?");
 
             query.append(whereClause);
-            query.append(";");
+            query.append("limit 1;");
 
             synchronized (bk) {
                 PreparedStatement s = conn.prepareStatement(query.toString());
@@ -329,8 +338,9 @@ public class ObservationJettyHandler extends AbstractHandler {
             }
             bk.closeDB(conn);
         } catch (SQLException ex) {
+            // An exception has happened, but make sure to free the database
+            // connection
             bk.closeDB(conn);
-
             logger.error("An exception occured trying to talk to the database.", ex);
         }
 
