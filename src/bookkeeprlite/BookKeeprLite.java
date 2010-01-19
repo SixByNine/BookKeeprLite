@@ -195,14 +195,20 @@ public class BookKeeprLite {
                 logger.debug("Re-creating pointings table");
 
                 s.executeUpdate("drop table if exists `pointings`;");
-                s.executeUpdate("create table `pointings` (" + "`uid` integer primary key," + "`gridid`, `coordinate`, `rise`, `set`, `toobserve`, `survey` , `region`, `tobs`, `config`,`ra`,`dec`,`gl`,`gb`);");
+                s.executeUpdate("create table `pointings` (" +
+                        "`uid` integer primary key,`gridid`, `coordinate` text, " +
+                        "`rise` real, `set` real, `toobserve` text, `survey` text ," +
+                        " `region` text, `tobs` real, `config` text,`ra` real, " +
+                        "`dec` real,`gl` real,`gb` real);");
 
                 conn.commit();
 
                 logger.debug("Re-creating survey beams table");
 
                 s.executeUpdate("drop table if exists `beams`;");
-                s.executeUpdate("create table `beams` (" + "`uid` integer primary key," + "`pointing_uid`, `gridid`, `coordinate`, `ra`,`dec`,`gl`,`gb`," +
+                s.executeUpdate("create table `beams` (" +
+                        "`uid` integer primary key,`pointing_uid` integer," +
+                        " `coordinate` text, `ra` real,`dec` real,`gl` real,`gb` real,`skybeam` integer, " +
                         "  foreign key(pointing_uid) references pointing(uid));");
 
                 conn.commit();
@@ -210,8 +216,10 @@ public class BookKeeprLite {
                 logger.debug("Re-creating psrxml table");
 
                 s.executeUpdate("drop table if exists `psrxml`;");
-                s.executeUpdate("create table `psrxml` (" + "`uid` integer primary key, beam_uid" + "`url`, `coordinate`,`ra`,`dec`,`gl`,`gb`,`utcstart`," +
-                        "`lst`,`beam`,`tobs`,`source_id`,`programme`," +
+                s.executeUpdate("create table `psrxml` (`uid` integer primary key, " +
+                        "`beam_uid` integer, `url` text, `coordinate` text ," +
+                        "`ra` real ,`dec` real,`gl` real ,`gb` real ,`utcstart` text," +
+                        "`lst`,`beam` integer,`tobs` real,`source_id` text ,`programme` text," +
                         " foreign key(beam_uid) references beams(uid));");
 
                 conn.commit();
@@ -288,9 +296,9 @@ public class BookKeeprLite {
                 logger.info("Verbose jetty logging to logfile enabled.");
             }
 
-            if (a.equals("--reinit")) {
-                reinit = true;
-            }
+//            if (a.equals("--reinit")) {
+//                reinit = true;
+//            }
             if (a.equals("--interactive") || shortargs.contains("i")) {
                 interactive = true;
             }

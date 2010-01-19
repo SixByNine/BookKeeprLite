@@ -115,8 +115,11 @@ public class ObservationJettyHandler extends AbstractHandler {
         int nmax = BookKeeprServer.getIntFromMap(requestMap, "nmax");
 
         if (nmax < 0 || nmax > 1000) {
-            nmax = 1000;
+            nmax = 10;
         }
+
+
+        logger.debug("Search gridid={} obstype={} distmax={} coord={} nmax={}",new Object[]{gridid,obstype,distmax,coord,nmax});
 
 
         if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/header.xhtml", request, response)) {
@@ -160,15 +163,18 @@ public class ObservationJettyHandler extends AbstractHandler {
              *
              */
             if (distmax > 0) {
-                // search by position... could use region field to make things
-                // faster.
+                /**
+                 * @TODO: Make this faster by splitting into regions and/or
+                 * making virtual tables.
+                 *
+                 */
                 StringBuffer query = new StringBuffer("select pointings.uid," +
-                        " sepnGal(?,?,`gl`,`gb`) from `beams` inner join `pointings`" +
-                        " on beams.pointing_uid == pointings.uid " +
-                        " where sepnGal(?,?,`gl`,`gb`) < ?");
+                        " sepnGal(?,?,beams.gl,beams.gb), gridid from `beams` inner join `pointings`" +
+                        " on  pointings.uid = beams.pointing_uid" +
+                        " where sepnGal(?,?,beams.gl,beams.gb) < ?");
 
                 query.append(whereClause);
-                query.append(" order by sepnGal(?,?,`gl`,`gb`) limit ");
+                query.append(" order by sepnGal(?,?,beams.gl,beams.gb) limit ");
                 query.append(nmax * 13);
                 query.append(";");
                 sepns = new ArrayList<Double>();
@@ -180,6 +186,11 @@ public class ObservationJettyHandler extends AbstractHandler {
 
                     // Here we are setting the variables for the statement
 
+                    //select
+                    s.setDouble(++i, gl);
+                    s.setDouble(++i, gb);
+
+                    //where
                     s.setDouble(++i, gl);
                     s.setDouble(++i, gb);
                     s.setDouble(++i, distmax);
@@ -188,9 +199,9 @@ public class ObservationJettyHandler extends AbstractHandler {
                         s.setString(++i, gridid);
                     }
 
+                    //order by
                     s.setDouble(++i, gl);
                     s.setDouble(++i, gb);
-                    s.setDouble(++i, distmax);
 
 
 
@@ -199,9 +210,11 @@ public class ObservationJettyHandler extends AbstractHandler {
                     while (rs.next()) {
                         uids.add(rs.getString(1));
                         sepns.add(rs.getDouble(2));
+                        logger.debug("Found nearby ptg {}",rs.getString(3));
                     }
                     // Resultset closed, released database
                     rs.close();
+                    s.close();
                 }
 
 
@@ -229,16 +242,17 @@ public class ObservationJettyHandler extends AbstractHandler {
                 }
                 // Resultset closed, released database
                 rs.close();
+                s.close();
             }
 
             // Now get the pointings.
             StringBuffer query = new StringBuffer("select pointings.uid, " +
-                    "pointings.gridid, beams.gridid,beams.coord,pointings.toobserve, " +
+                    "pointings.gridid, beams.coordinate, pointings.toobserve, " +
                     "pointings.survey , pointings.region, pointings.tobs, " +
                     " pointings.config" +
                     " from beams inner join pointings " +
-                    " on beams.pointing_uid == pointings.uid" +
-                    " where pointings.uid == ?");
+                    " on pointings.uid = beams.pointing_uid" +
+                    " where pointings.uid = ?");
 
             query.append(whereClause);
             query.append(";");
@@ -258,13 +272,14 @@ public class ObservationJettyHandler extends AbstractHandler {
 
                     ResultSet rs = s.executeQuery();
                     // todo send data to user!
-                    out.println(rs.getString(nmax));
+                    out.println(rs.getString(2)+" "+sepns.get(n)+ " ");
                     rs.close();
                     n++;
                     if (n > nmax) {
                         break;
                     }
                 }
+                s.close();
             }
             bk.closeDB(conn);
         } catch (SQLException ex) {

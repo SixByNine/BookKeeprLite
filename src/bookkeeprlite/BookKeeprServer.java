@@ -69,7 +69,7 @@ public class BookKeeprServer {
         double x = Double.NaN;
         if (requestMap.get(key) != null) {
             try {
-                x = Double.parseDouble(requestMap.get("coord_theta"));
+                x = Double.parseDouble(requestMap.get(key));
             } catch (NumberFormatException e) {
                 x = Double.NaN;
             }
@@ -81,7 +81,7 @@ public class BookKeeprServer {
         int x = -1;
         if (requestMap.get(key) != null) {
             try {
-                x = Integer.parseInt(requestMap.get("coord_theta"));
+                x = Integer.parseInt(requestMap.get(key));
             } catch (NumberFormatException e) {
                 x = -1;
             }

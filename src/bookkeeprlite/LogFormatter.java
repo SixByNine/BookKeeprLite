@@ -20,7 +20,7 @@ import javax.swing.text.DateFormatter;
 public class LogFormatter extends Formatter {
 
     private boolean classes = false;
-    SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+    SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public String format(LogRecord record) {
