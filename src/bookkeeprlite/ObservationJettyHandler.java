@@ -4,6 +4,8 @@
  */
 package bookkeeprlite;
 
+import bookkeeprlite.datastructures.SurveyBeam;
+import bookkeeprlite.datastructures.SurveyPointing;
 import coordlib.Coordinate;
 import java.io.BufferedReader;
 import java.io.File;
@@ -86,7 +88,7 @@ public class ObservationJettyHandler extends AbstractHandler {
             requestMap = BookKeeprServer.splitHttpForm(request.getQueryString());
         }
         if (requestMap == null) {
-            if (wjh.writeWebOut(wjh.rootpath + "/obs/search/index.xhtml", request, response)) {
+            if (wjh.writeWebOut(wjh.rootpath + "/obs/search/index.html", request, response)) {
                 response.getOutputStream().close();
             }
             return;
@@ -115,14 +117,14 @@ public class ObservationJettyHandler extends AbstractHandler {
         int nmax = BookKeeprServer.getIntFromMap(requestMap, "nmax");
 
         if (nmax < 0 || nmax > 1000) {
-            nmax = 10;
+            nmax = 1000;
         }
 
 
-        logger.debug("Search gridid={} obstype={} distmax={} coord={} nmax={}",new Object[]{gridid,obstype,distmax,coord,nmax});
+        logger.debug("Search gridid={} obstype={} distmax={} coord={} nmax={}", new Object[]{gridid, obstype, distmax, coord, nmax});
 
 
-        if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/header.xhtml", request, response)) {
+        if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/header.html", request, response)) {
             return;
         }
 
@@ -144,8 +146,8 @@ public class ObservationJettyHandler extends AbstractHandler {
 
         ArrayList<String> uids = new ArrayList<String>();
         ArrayList<Double> sepns = null; // this will be null if there was no coord.
+        ArrayList<SurveyPointing> pointings = new ArrayList<SurveyPointing>();
 
-        PrintStream out = new PrintStream(response.getOutputStream());
 
 
 
@@ -168,13 +170,56 @@ public class ObservationJettyHandler extends AbstractHandler {
                  * making virtual tables.
                  *
                  */
+                {
+                    conn.setAutoCommit(false);
+                    PreparedStatement s = conn.prepareStatement("select uid, " +
+                            "pointing_uid, sepnGal(?,?,beams.gl,beams.gb) " +
+                            " from beams where gb < ? and gb > ?;");
+
+
+                    //select
+                    s.setDouble(1, gl);
+                    s.setDouble(2, gb);
+
+                    // where
+                    s.setDouble(3, gb + distmax);
+                    s.setDouble(4, gb - distmax);
+
+                    ResultSet rs = s.executeQuery();
+
+                    Statement ss = conn.createStatement();
+                    ss.execute("create temporary table beamsearch (uid integer primary key, pointing_uid integer, sepn double)");
+                    ss.close();
+
+                    PreparedStatement s2 = conn.prepareStatement("insert into beamsearch values (?,?,?)");
+                    int i = 0;
+                    while (rs.next()) {
+                        s2.setLong(1, rs.getLong(1));
+                        s2.setLong(2, rs.getLong(2));
+                        s2.setDouble(3, rs.getDouble(3));
+                        s2.addBatch();
+                        i++;
+                    }
+                    logger.debug("Found {} beams for temp table", i);
+                    rs.close();
+                    s.close();
+                    i = 0;
+                    for (int x : s2.executeBatch()) {
+                        i += x;
+                    }
+                    logger.debug("Inserted {} rows in temp table", i);
+                    conn.commit();
+                    s2.close();
+
+                }
+
                 StringBuffer query = new StringBuffer("select pointings.uid," +
-                        " sepnGal(?,?,beams.gl,beams.gb), gridid from `beams` inner join `pointings`" +
-                        " on  pointings.uid = beams.pointing_uid" +
-                        " where sepnGal(?,?,beams.gl,beams.gb) < ?");
+                        " sepn, gridid from `beamsearch` inner join `pointings`" +
+                        " on  pointings.uid = beamsearch.pointing_uid" +
+                        " where sepn < ?");
 
                 query.append(whereClause);
-                query.append(" order by sepnGal(?,?,beams.gl,beams.gb) limit ");
+                query.append(" order by sepn limit ");
                 query.append(nmax * 13);
                 query.append(";");
                 sepns = new ArrayList<Double>();
@@ -186,22 +231,14 @@ public class ObservationJettyHandler extends AbstractHandler {
 
                     // Here we are setting the variables for the statement
 
-                    //select
-                    s.setDouble(++i, gl);
-                    s.setDouble(++i, gb);
 
                     //where
-                    s.setDouble(++i, gl);
-                    s.setDouble(++i, gb);
                     s.setDouble(++i, distmax);
 
                     if (gridid != null) {
                         s.setString(++i, gridid);
                     }
 
-                    //order by
-                    s.setDouble(++i, gl);
-                    s.setDouble(++i, gb);
 
 
 
@@ -210,7 +247,7 @@ public class ObservationJettyHandler extends AbstractHandler {
                     while (rs.next()) {
                         uids.add(rs.getString(1));
                         sepns.add(rs.getDouble(2));
-                        logger.debug("Found nearby ptg {}",rs.getString(3));
+                        logger.debug("Found nearby ptg {}", rs.getString(3));
                     }
                     // Resultset closed, released database
                     rs.close();
@@ -246,13 +283,9 @@ public class ObservationJettyHandler extends AbstractHandler {
             }
 
             // Now get the pointings.
-            StringBuffer query = new StringBuffer("select pointings.uid, " +
-                    "pointings.gridid, beams.coordinate, pointings.toobserve, " +
-                    "pointings.survey , pointings.region, pointings.tobs, " +
-                    " pointings.config" +
-                    " from beams inner join pointings " +
-                    " on pointings.uid = beams.pointing_uid" +
-                    " where pointings.uid = ?");
+            StringBuffer query = new StringBuffer("select `uid`, `gridid`, `survey`, `region`," +
+                    " `coordinate`, `tobs`, `toobserve`" +
+                    "from pointings where `uid` = ? limit 1");
 
             query.append(whereClause);
             query.append(";");
@@ -271,9 +304,22 @@ public class ObservationJettyHandler extends AbstractHandler {
                     }
 
                     ResultSet rs = s.executeQuery();
-                    // todo send data to user!
-                    out.println(rs.getString(2)+" "+sepns.get(n)+ " ");
+                    SurveyPointing ptg = new SurveyPointing();
+                    if (rs.next()) {
+                        ptg = new SurveyPointing();
+                        ptg.setUid(rs.getLong(1));
+                        ptg.setGridId(rs.getString(2));
+                        ptg.setSurvey(rs.getString(3));
+                        ptg.setRegion(rs.getString(4));
+                        ptg.setCoordStr(rs.getString(5));
+                        ptg.setTobs(rs.getDouble(6));
+                        ptg.setToObserve(rs.getString(7));
+
+                        ptg.setBeams(new ArrayList<SurveyBeam>());
+                    }
                     rs.close();
+
+                    pointings.add(ptg);
                     n++;
                     if (n > nmax) {
                         break;
@@ -288,9 +334,31 @@ public class ObservationJettyHandler extends AbstractHandler {
             logger.error("An exception occured trying to talk to the database.", ex);
         }
 
+
+        // Now write results to user...
+        PrintStream out = new PrintStream(response.getOutputStream());
+        int i = 0;
+        out.println("<tr>");
+        if (sepns != null) {
+            out.printf("<th>Sepn</th>");
+        }
+        out.printf("<th>GridID</th><th>Coord</th><th>T<sub>obs</sub></th>");
+        out.println("</tr>");
+
+
+        for (SurveyPointing ptg : pointings) {
+            out.println("<tr>");
+            if (sepns != null) {
+                out.printf("<td>%f</td>", sepns.get(i));
+            }
+            out.printf("<td>%s</td><td>%s</td><td>%5.0f</td>", ptg.getGridId(), ptg.getCoordinate().toString(false), ptg.getTobs());
+            out.println("</tr>");
+            i++;
+        }
+
         out.flush();
 
-        if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/footer.xhtml", request, response)) {
+        if (!wjh.writeWebOut(wjh.rootpath + "/obs/search/footer.html", request, response)) {
             return;
         }
         out.close();

@@ -71,11 +71,11 @@ public class WebJettyHandler extends AbstractHandler {
         if (targetFile.isDirectory()) {
             if (path.endsWith("/")) {
                 // send index.html
-                targetFile = new File(path + "index.xhtml");
-                logger.debug("Trying index.xhtml");
+                targetFile = new File(path + "index.html");
+                logger.debug("Trying index.html");
                 if (!targetFile.exists()) {
-                    targetFile = new File(path + "index.html");
-                    logger.debug("Trying index.html");
+                    targetFile = new File(path + "index.xhtml");
+                    logger.debug("Trying index.xhtml");
                 }
             } else {
                 // else redirect to the correct url.
@@ -99,7 +99,7 @@ public class WebJettyHandler extends AbstractHandler {
                 while (line != null) {
                     if (line.trim().startsWith("%%%")) {
                         logger.debug("Sending included file " + line.trim().substring(3));
-                        BufferedReader wrapper = new BufferedReader(new FileReader(rootpath + "/wrap/" + line.trim().substring(3) + ".html"));
+                        BufferedReader wrapper = new BufferedReader(new FileReader(rootpath + "/inc/" + line.trim().substring(3) + ".html"));
                         String line2 = wrapper.readLine();
                         while (line2 != null) {
                             out.println(line2);
