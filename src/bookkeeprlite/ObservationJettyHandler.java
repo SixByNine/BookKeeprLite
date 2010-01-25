@@ -4,6 +4,7 @@
  */
 package bookkeeprlite;
 
+import bookkeepr.xmlable.Psrxml;
 import bookkeeprlite.datastructures.SurveyBeam;
 import bookkeeprlite.datastructures.SurveyPointing;
 import coordlib.Coordinate;
@@ -19,6 +20,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.logging.Level;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -26,6 +28,7 @@ import org.mortbay.jetty.Request;
 import org.mortbay.jetty.handler.AbstractHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xml.sax.SAXException;
 
 /**
  *
@@ -49,6 +52,131 @@ public class ObservationJettyHandler extends AbstractHandler {
 
         if (path.startsWith("/obs/search")) {
             handleSearchRequest(path, request, response, dispatch);
+        }
+    }
+
+    public void handleStorePsrxmlRequest(String path, HttpServletRequest request, HttpServletResponse response, int dispatch) throws IOException, ServletException {
+        ((Request) request).setHandled(true);
+
+        Map<String, String> requestMap = null;
+        Psrxml psrxml = null;
+
+
+        if (request.getMethod().equals("POST")) {
+
+            logger.info("Handling a request to store a psrxml file.");
+            try {
+                psrxml = (Psrxml) bookkeepr.xml.XMLReader.read(request.getInputStream());
+            } catch (Exception ex) {
+                logger.error("Bad psrxml file passed!", ex);
+            }
+
+
+        } else {
+            response.sendError(400, "Must be a post request.");
+            logger.debug("Got a non-POST request for psrxml handling...?");
+            return;
+        }
+
+        if (psrxml == null) {
+            response.sendError(400, "Could not parse given PSRXML data.");
+            return;
+        }
+
+        Connection c = null;
+        try {
+            c = bk.connectDB();
+            c.setAutoCommit(false);
+
+            String gridid = psrxml.getSourceNameCentreBeam();
+            String project = psrxml.getObservingProgramme();
+
+            PreparedStatement s = c.prepareStatement("select `id` from `pointings` where gridid=? and survey=? limit 1;");
+            s.setString(1, gridid);
+            s.setString(2, project);
+            long ptg_id = -1;
+            long beam_id = -1;
+            Coordinate coord = psrxml.getStartCoordinate().getCoordinate();
+
+            synchronized (bk) {
+                ResultSet rs = s.executeQuery();
+
+                if (rs.next()) {
+                    ptg_id = rs.getLong(1);
+                }
+                rs.close();
+                s.close();
+
+                s = c.prepareStatement("select `id` from `beams` where pointing_uid=? and sepnGal(?,?,gl,gb) order by sepnGal(?,?,gl,gb) limit 1;");
+                s.setLong(1, ptg_id);
+                s.setDouble(2, coord.getGl());
+                s.setDouble(3, coord.getGb());
+                s.setDouble(4, coord.getGl());
+                s.setDouble(5, coord.getGb());
+                rs = s.executeQuery();
+                if (rs.next()) {
+                    beam_id = rs.getLong(1);
+                }
+                rs.close();
+                s.close();
+
+            }
+
+
+
+
+            /*s.executeUpdate("create table `psrxml` (`uid` integer primary key, " +
+            "`beam_uid` integer, `url` text, `coordinate` text ," +
+            "`ra` real ,`dec` real,`gl` real ,`gb` real ,`utcstart` text," +
+            "`lst`,`beam` integer,`tobs` real,`source_id` text ,`programme` text," +
+            " foreign key(beam_uid) references beams(uid));");*/
+
+
+            int i = 0;
+            if (beam_id < 0) {
+                s = c.prepareStatement("insert into `psrxml` values (null,null,?,?,?,?,?,?,?,?)");
+            } else {
+                s = c.prepareStatement("insert into `psrxml` values (null,?,?,?,?,?,?,?,?,?)");
+                s.setLong(++i, beam_id);
+            }
+
+            s.setString(++i, psrxml.getCatReference());
+            s.setString(++i, coord.toString(false));
+            s.setDouble(++i, coord.getRA().toDegrees());
+            s.setDouble(++i, coord.getDec().toDegrees());
+            s.setDouble(++i, coord.getGl());
+            s.setDouble(++i, coord.getGb());
+            s.setString(++i, psrxml.getUtc());
+            s.setString(++i, psrxml.getLst());
+            s.setInt(++i, psrxml.getReceiverBeam());
+            s.setDouble(++i, psrxml.getActualObsTime());
+            s.setString(++i, psrxml.getSourceName());
+            s.setString(++i, psrxml.getObservingProgramme());
+            synchronized (bk) {
+
+                int nrows = s.executeUpdate();
+                s.close();
+                if (nrows != 1) {
+                    logger.error("Update of psrxml did affected {} rows (should be 1)", nrows);
+                    response.sendError(500, "error occured inserting psrxml in database.");
+                    return;
+                }
+
+                // update pointings.
+
+                if (ptg_id >= 0 && beam_id >= 0) {
+                    s = c.prepareStatement("update `pointings` set (toobserve == false) where uid=? limit 1 ; ");
+                    s.setLong(++i, ptg_id);
+                    s.executeUpdate();
+                    s.close();
+                }
+
+                c.commit();
+            }
+            bk.closeDB(c);
+        } catch (SQLException ex) {
+            bk.closeDB(c);
+            logger.error("Exception occured storing psrxml in database", ex);
         }
     }
 

@@ -250,11 +250,13 @@ public class BookKeeprLite {
     }
 
     public void closeDB(Connection conn) {
-        try {
-            conn.close();
-            nconnections--;
-        } catch (SQLException ex) {
-            logger.debug("Error closing db connection", ex);
+        if (conn != null) {
+            try {
+                conn.close();
+                nconnections--;
+            } catch (SQLException ex) {
+                logger.debug("Error closing db connection", ex);
+            }
         }
     }
 
